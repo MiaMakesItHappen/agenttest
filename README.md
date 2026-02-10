@@ -16,19 +16,25 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2) Configure dataset path
+### 2) Configure environment
 Create `.env`:
 ```bash
 DATASET_DIR=/absolute/path/to/dataset
 DATASET_VERSION=v1
+DATABASE_URL=postgresql+psycopg2://agenttest:agenttest@localhost:5432/agenttest
 ```
 
-### 3) Run the API
+### 3) Start Postgres
+```bash
+docker compose up -d postgres
+```
+
+### 4) Run the API
 ```bash
 uvicorn api.main:app --reload --port 8000
 ```
 
-### 4) Run a backtest locally (worker)
+### 5) Run a backtest locally (worker)
 ```bash
 python -m worker.run_backtest --strategy examples/strategies/buy_and_hold.py --dataset $DATASET_DIR
 ```
@@ -43,3 +49,16 @@ python -m worker.run_backtest --strategy examples/strategies/buy_and_hold.py --d
 ## Notes
 - Week-1 goal is reproducibility: **dataset_version + code_hash + config_hash**.
 - Dataset should not be committed to git unless explicitly using Git LFS.
+
+## API
+- `GET /health`
+- `POST /strategies` `{ "strategy_path": "/abs/path/to/file.py" }`
+- `POST /runs` `{ "strategy_version_id": 1, "params": {} }` or `{ "strategy_path": "/abs/path/to/file.py" }`
+- `GET /runs/{run_id}`
+- `GET /leaderboard?dataset_version=v1`
+- `POST /defaults/promote` `{ "strategy_version_id": 1 }`
+
+## Demo
+```bash
+scripts/demo.sh
+```
