@@ -21,22 +21,32 @@ Create `.env`:
 ```bash
 DATASET_DIR=/absolute/path/to/dataset
 DATASET_VERSION=v1
-DATABASE_URL=postgresql+psycopg2://agenttest:agenttest@localhost:5432/agenttest
+# Default (recommended for local dev, no Docker required)
+DATABASE_URL=sqlite:///./agenttest.sqlite
 ```
 
-### 3) Start Postgres
-```bash
-docker compose up -d postgres
-```
-
-### 4) Run the API
+### 3) Run the API
 ```bash
 uvicorn api.main:app --reload --port 8000
 ```
 
-### 5) Run a backtest locally (worker)
+### 4) Run a backtest locally (worker)
 ```bash
 python -m worker.run_backtest --strategy examples/strategies/buy_and_hold.py --dataset $DATASET_DIR
+```
+
+### Optional: Postgres mode
+Install Postgres driver extras:
+```bash
+pip install -r requirements-postgres.txt
+```
+If you want Postgres locally, use Docker compose and set:
+```bash
+DATABASE_URL=postgresql+psycopg://agenttest:agenttest@localhost:5432/agenttest
+```
+Then:
+```bash
+docker compose up -d postgres
 ```
 
 ## Repo layout
@@ -59,6 +69,12 @@ python -m worker.run_backtest --strategy examples/strategies/buy_and_hold.py --d
 - `POST /defaults/promote` `{ "strategy_version_id": 1 }`
 
 ## Demo
+No-Docker default (SQLite):
 ```bash
 scripts/demo.sh
+```
+
+Postgres via Docker:
+```bash
+USE_DOCKER=1 scripts/demo.sh
 ```

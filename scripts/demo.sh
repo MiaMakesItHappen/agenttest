@@ -6,7 +6,9 @@ cd "$ROOT_DIR"
 
 export DATASET_DIR="${DATASET_DIR:-/tmp/agenttest_dataset}"
 export DATASET_VERSION="${DATASET_VERSION:-v1}"
-export DATABASE_URL="${DATABASE_URL:-postgresql+psycopg2://agenttest:agenttest@localhost:5432/agenttest}"
+# Default no-Docker path: local SQLite file
+export DATABASE_URL="${DATABASE_URL:-sqlite:///./agenttest.sqlite}"
+USE_DOCKER="${USE_DOCKER:-0}"
 
 mkdir -p "$DATASET_DIR"
 cat > "$DATASET_DIR/prices.csv" <<'CSV'
@@ -18,14 +20,20 @@ ts,price
 5,104
 CSV
 
-docker compose up -d postgres
+if [[ "$USE_DOCKER" == "1" ]]; then
+  export DATABASE_URL="${DATABASE_URL:-postgresql+psycopg://agenttest:agenttest@localhost:5432/agenttest}"
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "USE_DOCKER=1 but docker is not installed." >&2
+    exit 1
+  fi
+  docker compose up -d postgres
+  echo "Waiting for Postgres..."
+  until docker compose exec -T postgres pg_isready -U agenttest >/dev/null 2>&1; do
+    sleep 1
+  done
+fi
 
-echo "Waiting for Postgres..."
-until docker compose exec -T postgres pg_isready -U agenttest >/dev/null 2>&1; do
-  sleep 1
-done
-
-python - <<'PY'
+python3 - <<'PY'
 from api.db import init_db
 init_db()
 print("DB initialized")
