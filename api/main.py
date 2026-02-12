@@ -33,10 +33,23 @@ class StrategyCreate(BaseModel):
     strategy_path: str
 
 
+class StrategySubmitCode(BaseModel):
+    code: str
+    name: str | None = None
+    metadata: dict[str, str] | None = None
+
+
 class StrategyCreateResponse(BaseModel):
     strategy_id: int
     strategy_version_id: int
     code_hash: str
+
+
+class SubmitCodeResponse(BaseModel):
+    strategy_id: int
+    strategy_version_id: int
+    code_hash: str
+    file_path: str
 
 
 class RunCreate(BaseModel):
@@ -88,9 +101,69 @@ def get_or_create_strategy_version(db: Session, strategy_path: str) -> StrategyV
     return version
 
 
+STRATEGIES_DIR = "strategies"
+
+
+def submit_strategy_code(db: Session, code: str, name: str | None, metadata: dict[str, str] | None) -> tuple[Strategy, StrategyVersion]:
+    """Submit strategy code directly (no file path required)."""
+    import hashlib
+    import uuid
+
+    code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
+
+    # Determine strategy name
+    if name:
+        strategy_name = name
+    else:
+        # Try to extract from code metadata or generate one
+        strategy_name = f"strategy_{uuid.uuid4().hex[:8]}"
+
+    # Create file path
+    os.makedirs(STRATEGIES_DIR, exist_ok=True)
+    file_name = f"{strategy_name}_{code_hash[:16]}.py"
+    file_path = os.path.join(STRATEGIES_DIR, file_name)
+
+    # Write code to disk
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(code)
+
+    # Check for existing version with same hash
+    existing = db.execute(
+        select(StrategyVersion).where(StrategyVersion.code_hash == code_hash)
+    ).scalar_one_or_none()
+
+    if existing:
+        return db.get(Strategy, existing.strategy_id), existing
+
+    # Create new strategy + version
+    strategy = Strategy(name=strategy_name)
+    db.add(strategy)
+    db.flush()
+
+    version = StrategyVersion(
+        strategy_id=strategy.id,
+        code_hash=code_hash,
+        strategy_path=file_path,
+    )
+    db.add(version)
+    db.flush()  # Flush to get version.id
+
+    # Store metadata if provided (optional extension)
+    if metadata:
+        from api.models import StrategyMetadata
+        for k, v in metadata.items():
+            sm = StrategyMetadata(strategy_version_id=version.id, key=k, value=v)
+            db.add(sm)
+
+    db.commit()
+    db.refresh(version)
+    return strategy, version
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
+    os.makedirs(STRATEGIES_DIR, exist_ok=True)
 
 
 @app.get("/health", response_model=Health)
@@ -103,6 +176,21 @@ def create_strategy(req: StrategyCreate, db: Session = Depends(get_db)):
     version = get_or_create_strategy_version(db, req.strategy_path)
     return StrategyCreateResponse(
         strategy_id=version.strategy_id, strategy_version_id=version.id, code_hash=version.code_hash
+    )
+
+
+@app.post("/strategies/submit", response_model=SubmitCodeResponse)
+def submit_strategy(req: StrategySubmitCode, db: Session = Depends(get_db)):
+    """Submit strategy code directly (for agent-based strategy generation).
+
+    Stores code to disk under strategies/ directory and creates StrategyVersion record.
+    """
+    strategy, version = submit_strategy_code(db, req.code, req.name, req.metadata)
+    return SubmitCodeResponse(
+        strategy_id=strategy.id,
+        strategy_version_id=version.id,
+        code_hash=version.code_hash,
+        file_path=version.strategy_path,
     )
 
 

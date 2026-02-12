@@ -63,3 +63,55 @@ echo "Run response: $RUN_RESPONSE"
 
 LEADERBOARD=$(curl -s "http://127.0.0.1:8000/leaderboard?dataset_version=$DATASET_VERSION")
 echo "Leaderboard: $LEADERBOARD"
+
+# Test agent submission (direct code upload)
+echo ""
+echo "--- Testing agent submission ---"
+
+# Create JSON payload file to avoid newline escaping issues
+AGENT_PAYLOAD=$(python3 <<'PYTHON'
+import json
+
+code = """
+def simulate(prices, params):
+    # Convert to list if it's a pandas Series or numpy array
+    if hasattr(prices, "tolist"):
+        prices_list = prices.tolist()
+    else:
+        prices_list = list(prices)
+    
+    if not prices_list:
+        return [1.0]
+    
+    p0 = float(prices_list[0])
+    if p0 == 0:
+        p0 = 1.0
+    
+    equity = [float(p) / p0 for p in prices_list]
+    return equity
+"""
+
+payload = {
+    "code": code,
+    "name": "agent_buy_hold",
+    "metadata": {"author": "test_agent"}
+}
+print(json.dumps(payload))
+PYTHON
+)
+
+SUBMIT_RESPONSE=$(curl -s -X POST http://127.0.0.1:8000/strategies/submit \
+  -H "Content-Type: application/json" \
+  -d "$AGENT_PAYLOAD")
+
+echo "Submit response: $SUBMIT_RESPONSE"
+SUBMIT_VERSION_ID=$(echo "$SUBMIT_RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('strategy_version_id', 0))")
+
+if [ "$SUBMIT_VERSION_ID" -gt 0 ] 2>/dev/null; then
+  RUN_RESPONSE=$(curl -s -X POST http://127.0.0.1:8000/runs \
+    -H "Content-Type: application/json" \
+    -d "{\"strategy_version_id\": $SUBMIT_VERSION_ID}")
+  echo "Run from agent strategy: $RUN_RESPONSE"
+else
+  echo "Skipping agent run test (submit failed)"
+fi

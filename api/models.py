@@ -88,3 +88,16 @@ class DefaultStrategyHistory(Base):
         ForeignKey("strategy_versions.id"), nullable=False, index=True
     )
     promoted_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class StrategyMetadata(Base):
+    """Optional metadata for strategy versions (author, description, etc.)."""
+    __tablename__ = "strategy_metadata"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    strategy_version_id: Mapped[int] = mapped_column(
+        ForeignKey("strategy_versions.id"), nullable=False, index=True
+    )
+    key: Mapped[str] = mapped_column(String(128), nullable=False)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())

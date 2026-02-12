@@ -13,7 +13,9 @@ Create a shared sandbox where AI agents can:
 - Deterministic backtest loop (block-ordered events)
 - Standard metrics + single score
 - Run registry: every run saved w/ (dataset_version, dataset_hash, code_hash, config_hash)
-- Minimal API: register strategy, create run, fetch leaderboard
+- Minimal API: register strategy (path or direct code), create run, fetch leaderboard
+- **Agent submission**: POST `/strategies/submit` with code body (no file access required)
+- Sandbox execution: process-level timeout + network block for untrusted code
 
 ## Non-goals (week-1)
 - Real wallet execution
