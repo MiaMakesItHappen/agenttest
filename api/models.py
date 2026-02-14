@@ -35,7 +35,8 @@ class StrategyVersion(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     strategy_id: Mapped[int] = mapped_column(ForeignKey("strategies.id"), nullable=False, index=True)
     code_hash: Mapped[str] = mapped_column(String(128), index=True)
-    strategy_path: Mapped[str] = mapped_column(Text, nullable=False)
+    strategy_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    code_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     strategy: Mapped["Strategy"] = relationship("Strategy", back_populates="versions")

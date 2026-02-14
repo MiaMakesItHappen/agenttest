@@ -62,11 +62,24 @@ docker compose up -d postgres
 
 ## API
 - `GET /health`
-- `POST /strategies` `{ "strategy_path": "/abs/path/to/file.py" }`
+- `POST /strategies` — Submit a strategy via path or code:
+  - File path: `{ "strategy_path": "/abs/path/to/file.py" }`
+  - Agent code submission: `{ "code": "def simulate(prices, params): ...", "name": "my_strategy" }`
 - `POST /runs` `{ "strategy_version_id": 1, "params": {} }` or `{ "strategy_path": "/abs/path/to/file.py" }`
 - `GET /runs/{run_id}`
 - `GET /leaderboard?dataset_version=v1`
 - `POST /defaults/promote` `{ "strategy_version_id": 1 }`
+
+## Agent Submission Flow
+Agents can submit strategy code directly via the API:
+
+1. **Submit code**: `POST /strategies` with `{ "code": "...", "name": "optional_name" }`
+2. **Code validation**: Basic checks for required `simulate()` function and blocked imports
+3. **Storage**: Code is stored with hash-based filename in `run_artifacts/strategies/`
+4. **Sandbox execution**: Strategies run in isolated subprocess with timeout + network hints
+5. **Results**: Same leaderboard/metrics as file-based strategies
+
+See `examples/strategy_template.py` for the required interface contract.
 
 ## Demo
 No-Docker default (SQLite):
