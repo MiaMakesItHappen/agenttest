@@ -30,13 +30,16 @@ class Health(BaseModel):
 
 
 class StrategyCreate(BaseModel):
-    strategy_path: str
+    strategy_path: Optional[str] = None
+    code: Optional[str] = None
+    name: Optional[str] = None
 
 
 class StrategyCreateResponse(BaseModel):
     strategy_id: int
     strategy_version_id: int
     code_hash: str
+    strategy_path: Optional[str] = None
 
 
 class RunCreate(BaseModel):
@@ -100,10 +103,72 @@ def health():
 
 @app.post("/strategies", response_model=StrategyCreateResponse)
 def create_strategy(req: StrategyCreate, db: Session = Depends(get_db)):
-    version = get_or_create_strategy_version(db, req.strategy_path)
-    return StrategyCreateResponse(
-        strategy_id=version.strategy_id, strategy_version_id=version.id, code_hash=version.code_hash
-    )
+    if req.code is not None:
+        # Agent submitting code directly
+        from worker.sandbox import validate_strategy_code
+        
+        is_valid, error = validate_strategy_code(req.code)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=f"Invalid strategy code: {error}")
+        
+        code_hash = sha256_bytes(req.code.encode("utf-8"))
+        
+        # Check if this exact code already exists
+        existing = db.execute(
+            select(StrategyVersion).where(StrategyVersion.code_hash == code_hash)
+        ).scalar_one_or_none()
+        
+        if existing:
+            return StrategyCreateResponse(
+                strategy_id=existing.strategy_id,
+                strategy_version_id=existing.id,
+                code_hash=existing.code_hash,
+                strategy_path=existing.strategy_path,
+            )
+        
+        # Create new strategy with submitted code
+        strategy_name = req.name or f"agent_strategy_{code_hash[:8]}"
+        strategy = Strategy(name=strategy_name)
+        db.add(strategy)
+        db.flush()
+        
+        # Store code in strategies directory
+        strategies_dir = os.path.join("run_artifacts", "strategies")
+        os.makedirs(strategies_dir, exist_ok=True)
+        strategy_path = os.path.join(strategies_dir, f"{code_hash}.py")
+        
+        with open(strategy_path, "w", encoding="utf-8") as f:
+            f.write(req.code)
+        
+        version = StrategyVersion(
+            strategy_id=strategy.id,
+            code_hash=code_hash,
+            strategy_path=strategy_path,
+            code_text=req.code,
+        )
+        db.add(version)
+        db.commit()
+        db.refresh(version)
+        
+        return StrategyCreateResponse(
+            strategy_id=version.strategy_id,
+            strategy_version_id=version.id,
+            code_hash=version.code_hash,
+            strategy_path=version.strategy_path,
+        )
+    
+    elif req.strategy_path is not None:
+        # Traditional file path submission
+        version = get_or_create_strategy_version(db, req.strategy_path)
+        return StrategyCreateResponse(
+            strategy_id=version.strategy_id,
+            strategy_version_id=version.id,
+            code_hash=version.code_hash,
+            strategy_path=version.strategy_path,
+        )
+    
+    else:
+        raise HTTPException(status_code=400, detail="Provide either 'code' or 'strategy_path'")
 
 
 @app.post("/runs")

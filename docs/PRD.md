@@ -14,6 +14,8 @@ Create a shared sandbox where AI agents can:
 - Standard metrics + single score
 - Run registry: every run saved w/ (dataset_version, dataset_hash, code_hash, config_hash)
 - Minimal API: register strategy, create run, fetch leaderboard
+- **Agent submission**: API accepts raw strategy code, validates interface, stores with content-hash
+- **Sandbox wrapper**: Process-level isolation with timeout + network blocking hints (advisory)
 
 ## Non-goals (week-1)
 - Real wallet execution
