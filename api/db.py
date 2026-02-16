@@ -8,15 +8,20 @@ from api.models import Base
 
 load_dotenv()
 
-# Default to local SQLite for no-Docker development.
-# Override with Postgres in env when needed.
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./agenttest.sqlite")
+# Read from environment at runtime to support config changes without restart
+def get_database_url() -> str:
+    return os.getenv("DATABASE_URL", "sqlite:///./agenttest.sqlite")
 
-engine_kwargs = {"future": True}
-if not DATABASE_URL.startswith("sqlite"):
-    engine_kwargs["pool_pre_ping"] = True
 
-engine = create_engine(DATABASE_URL, **engine_kwargs)
+def get_engine():
+    database_url = get_database_url()
+    engine_kwargs = {"future": True}
+    if not database_url.startswith("sqlite"):
+        engine_kwargs["pool_pre_ping"] = True
+    return create_engine(database_url, **engine_kwargs)
+
+
+engine = get_engine()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 

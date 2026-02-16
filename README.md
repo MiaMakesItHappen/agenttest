@@ -23,6 +23,8 @@ DATASET_DIR=/absolute/path/to/dataset
 DATASET_VERSION=v1
 # Default (recommended for local dev, no Docker required)
 DATABASE_URL=sqlite:///./agenttest.sqlite
+# Optional: directory for submitted strategies (default: strategies/)
+STRATEGIES_DIR=./strategies
 ```
 
 ### 3) Run the API
@@ -55,20 +57,99 @@ docker compose up -d postgres
 - `shared/` shared types + hashing utils
 - `docs/` PRD + decisions
 - `scripts/` helper scripts
+- `strategies/` directory for submitted agent strategies
 
 ## Notes
 - Week-1 goal is reproducibility: **dataset_version + code_hash + config_hash**.
 - Dataset should not be committed to git unless explicitly using Git LFS.
 
+## Strategy Interface
+
+All strategies must implement a `simulate(prices, params)` function:
+
+```python
+import numpy as np
+
+def simulate(prices: list[float], params: dict) -> list[float]:
+    """
+    Args:
+        prices: List of price data points
+        params: Strategy parameters for tuning
+
+    Returns:
+        List of equity values starting at 1.0
+    """
+    p = np.asarray(prices, dtype=float)
+    p0 = p[0] if p[0] != 0 else 1.0
+    equity = p / p0
+    return equity.tolist()
+```
+
+See `examples/strategy_template.py` for the full contract and documentation.
+
+## Agent Submission Flow
+
+Agents can submit strategies directly via API:
+
+### 1. Submit strategy code
+```bash
+curl -X POST http://localhost:8000/strategies/submit \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "code": "import numpy as np\n\ndef simulate(prices, params):\n    p = np.asarray(prices, dtype=float)\n    return (p / p[0]).tolist() if p[0] != 0 else [1.0] * len(p)",
+    "name": "my_agent_strategy",
+    "params": {}
+  }'
+```
+
+Response:
+```json
+{
+  "strategy_id": 1,
+  "strategy_version_id": 1,
+  "code_hash": "abc123..."
+}
+```
+
+### 2. Run the strategy
+```bash
+curl -X POST http://localhost:8000/runs \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "strategy_version_id": 1,
+    "params": {}
+  }'
+```
+
+### 3. Check results
+```bash
+curl http://localhost:8000/runs/{run_id}
+curl http://localhost:8000/leaderboard
+```
+
+## Sandbox
+
+Submitted strategies run in a restricted environment:
+
+- **Timeout**: 60 seconds maximum execution time
+- **Memory**: 256 MB limit
+- **Network**: Blocked (HTTP_PROXY, HTTPS_PROXY cleared)
+- **File I/O**: Blocked in sandbox mode
+- **Isolation**: Process-level via multiprocessing
+
+For trusted local files, use `strategy_path` endpoints with `trusted=True` to skip sandbox.
+
 ## API
 - `GET /health`
 - `POST /strategies` `{ "strategy_path": "/abs/path/to/file.py" }`
+- `POST /strategies/submit` `{ "code": "...", "name": "...", "params": {} }`
 - `POST /runs` `{ "strategy_version_id": 1, "params": {} }` or `{ "strategy_path": "/abs/path/to/file.py" }`
 - `GET /runs/{run_id}`
 - `GET /leaderboard?dataset_version=v1`
 - `POST /defaults/promote` `{ "strategy_version_id": 1 }`
 
 ## Demo
+
 No-Docker default (SQLite):
 ```bash
 scripts/demo.sh
@@ -77,4 +158,9 @@ scripts/demo.sh
 Postgres via Docker:
 ```bash
 USE_DOCKER=1 scripts/demo.sh
+```
+
+Agent submission demo:
+```bash
+scripts/submission_demo.sh
 ```

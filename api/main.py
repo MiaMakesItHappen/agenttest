@@ -33,6 +33,12 @@ class StrategyCreate(BaseModel):
     strategy_path: str
 
 
+class StrategySubmit(BaseModel):
+    code: str
+    name: str
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+
 class StrategyCreateResponse(BaseModel):
     strategy_id: int
     strategy_version_id: int
@@ -65,6 +71,35 @@ def hash_file(path: str) -> str:
 
 def get_strategy_name(strategy_path: str) -> str:
     return os.path.splitext(os.path.basename(strategy_path))[0]
+
+
+STRATEGIES_DIR = os.getenv("STRATEGIES_DIR", "strategies")
+
+
+def ensure_strategies_dir():
+    """Ensure the strategies directory exists."""
+    os.makedirs(STRATEGIES_DIR, exist_ok=True)
+
+
+def save_strategy_code(code: str, name: str) -> str:
+    """
+    Save strategy code to the strategies directory.
+
+    Args:
+        code: Python source code for the strategy
+        name: Strategy name (used for filename)
+
+    Returns:
+        Absolute path to the saved strategy file
+    """
+    ensure_strategies_dir()
+    # Sanitize filename
+    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
+    filename = f"{safe_name}.py"
+    path = os.path.abspath(os.path.join(STRATEGIES_DIR, filename))
+    with open(path, "w") as f:
+        f.write(code)
+    return path
 
 
 def get_or_create_strategy_version(db: Session, strategy_path: str) -> StrategyVersion:
@@ -103,6 +138,72 @@ def create_strategy(req: StrategyCreate, db: Session = Depends(get_db)):
     version = get_or_create_strategy_version(db, req.strategy_path)
     return StrategyCreateResponse(
         strategy_id=version.strategy_id, strategy_version_id=version.id, code_hash=version.code_hash
+    )
+
+
+@app.post("/strategies/submit", response_model=StrategyCreateResponse)
+def submit_strategy(req: StrategySubmit, db: Session = Depends(get_db)):
+    """
+    Submit strategy code directly.
+
+    Saves the code to the strategies/ directory and creates a
+    StrategyVersion record with the computed code_hash.
+
+    Request body:
+    - code: Python source code with simulate(prices, params) function
+    - name: Strategy name (used for filename)
+    - params: Optional default parameters
+
+    Returns:
+    - strategy_id: Database ID of the strategy
+    - strategy_version_id: ID of this specific version
+    - code_hash: SHA-256 hash of the submitted code
+    """
+    if not req.code or not req.code.strip():
+        raise HTTPException(status_code=400, detail="code is required")
+
+    # Validate code has required function
+    if "def simulate(" not in req.code:
+        raise HTTPException(status_code=400, detail="code must contain simulate(prices, params) function")
+
+    # Save code to disk
+    strategy_path = save_strategy_code(req.code, req.name)
+
+    # Compute hash and create version
+    code_hash = sha256_bytes(req.code.encode("utf-8"))
+
+    # Check for existing version with same hash
+    existing = db.execute(
+        select(StrategyVersion).where(StrategyVersion.code_hash == code_hash)
+    ).scalar_one_or_none()
+
+    if existing:
+        # Remove the duplicate file we just wrote
+        os.remove(strategy_path)
+        return StrategyCreateResponse(
+            strategy_id=existing.strategy_id,
+            strategy_version_id=existing.id,
+            code_hash=existing.code_hash,
+        )
+
+    # Create new strategy and version
+    strategy = Strategy(name=req.name)
+    db.add(strategy)
+    db.flush()
+
+    version = StrategyVersion(
+        strategy_id=strategy.id,
+        code_hash=code_hash,
+        strategy_path=strategy_path,
+    )
+    db.add(version)
+    db.commit()
+    db.refresh(version)
+
+    return StrategyCreateResponse(
+        strategy_id=version.strategy_id,
+        strategy_version_id=version.id,
+        code_hash=version.code_hash,
     )
 
 

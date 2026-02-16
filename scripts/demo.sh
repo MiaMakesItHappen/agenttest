@@ -33,33 +33,33 @@ if [[ "$USE_DOCKER" == "1" ]]; then
   done
 fi
 
-python3 - <<'PY'
+"$ROOT_DIR/.venv312/bin/python" - <<'PY'
 from api.db import init_db
 init_db()
 print("DB initialized")
 PY
 
-uvicorn api.main:app --port 8000 >/tmp/agenttest_api.log 2>&1 &
+"$ROOT_DIR/.venv312/bin/uvicorn" api.main:app --port 8001 >/tmp/agenttest_api.log 2>&1 &
 API_PID=$!
 trap 'kill "$API_PID" >/dev/null 2>&1 || true' EXIT
 
 echo "Waiting for API..."
-until curl -s http://127.0.0.1:8000/health >/dev/null; do
+until curl -s http://127.0.0.1:8001/health >/dev/null; do
   sleep 1
 done
 
 STRATEGY_PATH="$ROOT_DIR/examples/strategies/buy_and_hold.py"
-STRATEGY_RESPONSE=$(curl -s -X POST http://127.0.0.1:8000/strategies \
+STRATEGY_RESPONSE=$(curl -s -X POST http://127.0.0.1:8001/strategies \
   -H 'Content-Type: application/json' \
   -d "{\"strategy_path\":\"$STRATEGY_PATH\"}")
 
 echo "Strategy response: $STRATEGY_RESPONSE"
 
-RUN_RESPONSE=$(curl -s -X POST http://127.0.0.1:8000/runs \
+RUN_RESPONSE=$(curl -s -X POST http://127.0.0.1:8001/runs \
   -H 'Content-Type: application/json' \
   -d "{\"strategy_path\":\"$STRATEGY_PATH\"}")
 
 echo "Run response: $RUN_RESPONSE"
 
-LEADERBOARD=$(curl -s "http://127.0.0.1:8000/leaderboard?dataset_version=$DATASET_VERSION")
+LEADERBOARD=$(curl -s "http://127.0.0.1:8001/leaderboard?dataset_version=$DATASET_VERSION")
 echo "Leaderboard: $LEADERBOARD"
