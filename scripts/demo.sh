@@ -61,5 +61,26 @@ RUN_RESPONSE=$(curl -s -X POST http://127.0.0.1:8001/runs \
 
 echo "Run response: $RUN_RESPONSE"
 
+## --- Agent code-submission flow ---
+echo ""
+echo "=== Agent Code Submission Flow ==="
+
+SUBMIT_CODE='import numpy as np\n\ndef simulate(prices, params):\n    \"\"\"Simple momentum strategy.\"\"\"\n    p = np.asarray(prices, dtype=float)\n    window = params.get(\"window\", 3)\n    equity = [1.0]\n    position = 0.0\n    for i in range(1, len(p)):\n        if i >= window and p[i] > p[i - window]:\n            position = 1.0\n        else:\n            position = 0.0\n        ret = (p[i] / p[i-1] - 1.0) * position\n        equity.append(equity[-1] * (1.0 + ret))\n    return equity\n'
+
+SUBMIT_RESPONSE=$(curl -s -X POST http://127.0.0.1:8001/strategies/submit \
+  -H 'Content-Type: application/json' \
+  -d "{\"code\":\"$SUBMIT_CODE\",\"name\":\"momentum_agent\",\"params\":{}}")
+
+echo "Submit response: $SUBMIT_RESPONSE"
+
+# Extract strategy_version_id and run it
+SVR_ID=$(echo "$SUBMIT_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['strategy_version_id'])")
+
+SUBMIT_RUN=$(curl -s -X POST http://127.0.0.1:8001/runs \
+  -H 'Content-Type: application/json' \
+  -d "{\"strategy_version_id\":$SVR_ID,\"params\":{\"window\":2}}")
+
+echo "Submit-run response: $SUBMIT_RUN"
+
 LEADERBOARD=$(curl -s "http://127.0.0.1:8001/leaderboard?dataset_version=$DATASET_VERSION")
 echo "Leaderboard: $LEADERBOARD"
