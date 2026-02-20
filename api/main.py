@@ -178,8 +178,18 @@ def submit_strategy(req: StrategySubmit, db: Session = Depends(get_db)):
     ).scalar_one_or_none()
 
     if existing:
-        # Remove the duplicate file we just wrote
-        os.remove(strategy_path)
+        # Keep the canonical file referenced by the existing StrategyVersion.
+        # Only remove the just-written duplicate when it points elsewhere.
+        if os.path.abspath(strategy_path) != os.path.abspath(existing.strategy_path):
+            if os.path.exists(strategy_path):
+                os.remove(strategy_path)
+
+        # Repair stale records if the canonical file was removed previously.
+        if not os.path.exists(existing.strategy_path):
+            ensure_strategies_dir()
+            with open(existing.strategy_path, "w", encoding="utf-8") as f:
+                f.write(req.code)
+
         return StrategyCreateResponse(
             strategy_id=existing.strategy_id,
             strategy_version_id=existing.id,

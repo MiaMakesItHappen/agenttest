@@ -53,13 +53,35 @@ STRATEGY_RESPONSE=$(curl -s -X POST http://127.0.0.1:8001/strategies \
   -H 'Content-Type: application/json' \
   -d "{\"strategy_path\":\"$STRATEGY_PATH\"}")
 
-echo "Strategy response: $STRATEGY_RESPONSE"
+echo "Strategy response (path): $STRATEGY_RESPONSE"
 
 RUN_RESPONSE=$(curl -s -X POST http://127.0.0.1:8001/runs \
   -H 'Content-Type: application/json' \
   -d "{\"strategy_path\":\"$STRATEGY_PATH\"}")
 
-echo "Run response: $RUN_RESPONSE"
+echo "Run response (path): $RUN_RESPONSE"
+
+SUBMIT_PAYLOAD=$("$ROOT_DIR/.venv312/bin/python" - <<'PY'
+import json
+from pathlib import Path
+code = Path("examples/strategies/buy_and_hold.py").read_text(encoding="utf-8")
+print(json.dumps({"name": "demo_submitted_strategy", "code": code}))
+PY
+)
+
+SUBMIT_RESPONSE=$(curl -s -X POST http://127.0.0.1:8001/strategies/submit \
+  -H 'Content-Type: application/json' \
+  -d "$SUBMIT_PAYLOAD")
+
+echo "Strategy response (submit): $SUBMIT_RESPONSE"
+
+SUBMIT_VERSION_ID=$("$ROOT_DIR/.venv312/bin/python" -c 'import json,sys; print(json.loads(sys.argv[1])["strategy_version_id"])' "$SUBMIT_RESPONSE")
+
+RUN_SUBMIT_RESPONSE=$(curl -s -X POST http://127.0.0.1:8001/runs \
+  -H 'Content-Type: application/json' \
+  -d "{\"strategy_version_id\":$SUBMIT_VERSION_ID}")
+
+echo "Run response (submitted code): $RUN_SUBMIT_RESPONSE"
 
 LEADERBOARD=$(curl -s "http://127.0.0.1:8001/leaderboard?dataset_version=$DATASET_VERSION")
 echo "Leaderboard: $LEADERBOARD"
