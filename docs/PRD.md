@@ -103,6 +103,10 @@ See `examples/strategy_template.py` for full documentation.
 
 ### Sandbox Security
 
+`POST /runs` keeps both paths:
+- `strategy_version_id` created via `POST /strategies/submit` → sandboxed execution (untrusted)
+- `strategy_path` direct local file execution → trusted mode (for local dev)
+
 | Restriction | Method |
 |-------------|--------|
 | Timeout | `multiprocessing.Process` + `join(timeout)` |

@@ -225,6 +225,12 @@ def create_run(req: RunCreate, db: Session = Depends(get_db)):
     else:
         version = get_or_create_strategy_version(db, req.strategy_path)
 
+    # Strategies submitted via /strategies/submit are persisted under STRATEGIES_DIR
+    # and should run sandboxed by default. Explicit strategy_path runs are treated as trusted local code.
+    strategies_root = os.path.abspath(STRATEGIES_DIR)
+    version_path = os.path.abspath(version.strategy_path)
+    is_submitted_strategy = version_path.startswith(strategies_root + os.sep) or version_path == strategies_root
+
     run_id = str(uuid.uuid4())
     run = Run(
         id=run_id,
@@ -242,6 +248,7 @@ def create_run(req: RunCreate, db: Session = Depends(get_db)):
             dataset_version=dataset_version,
             params=req.params,
             run_id=run_id,
+            trusted_strategy=not is_submitted_strategy,
         )
     except Exception as exc:
         run.status = "failed"

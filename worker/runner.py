@@ -11,6 +11,7 @@ import pandas as pd
 
 from shared.hashing import sha256_bytes, sha256_json
 from shared.types import RunResult
+from worker.sandbox import run_strategy
 
 
 def hash_file(path: str) -> str:
@@ -47,6 +48,7 @@ def run_backtest(
     dataset_version: str,
     params: Dict[str, Any],
     run_id: str | None = None,
+    trusted_strategy: bool = True,
 ) -> RunResult:
     run_id = run_id or str(uuid.uuid4())
     started = time.time()
@@ -55,17 +57,16 @@ def run_backtest(
     code_hash = hash_file(strategy_path)
     config_hash = sha256_json({"params": params, "dataset_version": dataset_version})
 
-    # Load strategy
-    strategy_globals: Dict[str, Any] = {}
     with open(strategy_path, "r", encoding="utf-8") as f:
         code = f.read()
-    exec(compile(code, strategy_path, "exec"), strategy_globals)
-
-    if "simulate" not in strategy_globals:
-        raise ValueError("Strategy must define simulate(prices, params) -> equity_curve")
 
     prices = load_price_series(dataset_dir)
-    equity = strategy_globals["simulate"](prices=prices, params=params)
+    equity = run_strategy(
+        strategy_code=code,
+        prices=prices.tolist(),
+        params=params,
+        trusted=trusted_strategy,
+    )
     equity = pd.Series(equity, dtype=float)
 
     # Metrics (very MVP)

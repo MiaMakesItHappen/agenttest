@@ -129,6 +129,8 @@ curl http://localhost:8000/leaderboard
 
 ## Sandbox
 
+Submitted strategies (`/strategies/submit`) run in a restricted environment by default. Direct `strategy_path` runs remain available for trusted local development.
+
 Submitted strategies run in a restricted environment:
 
 - **Timeout**: 60 seconds maximum execution time
