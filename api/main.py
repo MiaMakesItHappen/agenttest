@@ -235,6 +235,10 @@ def create_run(req: RunCreate, db: Session = Depends(get_db)):
     db.add(run)
     db.commit()
 
+    # Trust only direct strategy_path runs (existing local-file flow).
+    # Submitted code (via /strategies/submit) remains sandboxed by default.
+    trusted = req.strategy_path is not None
+
     try:
         result = run_backtest(
             strategy_path=version.strategy_path,
@@ -242,6 +246,7 @@ def create_run(req: RunCreate, db: Session = Depends(get_db)):
             dataset_version=dataset_version,
             params=req.params,
             run_id=run_id,
+            trusted=trusted,
         )
     except Exception as exc:
         run.status = "failed"
