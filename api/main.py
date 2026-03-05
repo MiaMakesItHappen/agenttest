@@ -73,12 +73,16 @@ def get_strategy_name(strategy_path: str) -> str:
     return os.path.splitext(os.path.basename(strategy_path))[0]
 
 
-STRATEGIES_DIR = os.getenv("STRATEGIES_DIR", "strategies")
+def get_strategies_dir() -> str:
+    """Read strategies dir at runtime so env changes are respected."""
+    return os.getenv("STRATEGIES_DIR", "strategies")
 
 
-def ensure_strategies_dir():
-    """Ensure the strategies directory exists."""
-    os.makedirs(STRATEGIES_DIR, exist_ok=True)
+def ensure_strategies_dir() -> str:
+    """Ensure the strategies directory exists and return it."""
+    strategies_dir = get_strategies_dir()
+    os.makedirs(strategies_dir, exist_ok=True)
+    return strategies_dir
 
 
 def save_strategy_code(code: str, name: str) -> str:
@@ -92,11 +96,11 @@ def save_strategy_code(code: str, name: str) -> str:
     Returns:
         Absolute path to the saved strategy file
     """
-    ensure_strategies_dir()
+    strategies_dir = ensure_strategies_dir()
     # Sanitize filename
     safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
     filename = f"{safe_name}.py"
-    path = os.path.abspath(os.path.join(STRATEGIES_DIR, filename))
+    path = os.path.abspath(os.path.join(strategies_dir, filename))
     with open(path, "w") as f:
         f.write(code)
     return path
