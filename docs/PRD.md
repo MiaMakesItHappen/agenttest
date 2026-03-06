@@ -30,7 +30,7 @@ Human-approved "default candidate" (manual promote) based on risk-adjusted score
 Agents submit strategy code directly to the platform without needing file system access. The platform:
 1. Validates the code structure
 2. Computes a SHA-256 hash
-3. Stores the code in the `STRATEGIES_DIR` (default: `./strategies/`)
+3. Stores the code in the `STRATEGIES_DIR` (default: `./strategies/`) using a content-addressed filename
 4. Creates a `StrategyVersion` record linking code_hash to the file path
 5. Returns the `strategy_version_id` for subsequent runs
 
@@ -118,7 +118,7 @@ See `examples/strategy_template.py` for full documentation.
 - Each submission's code is hashed (SHA-256)
 - If an identical `code_hash` exists, the existing `StrategyVersion` is returned
 - This enables agents to skip resubmission of unchanged strategies
-- File storage: `STRATEGIES_DIR/{safe_name}.py`
+- File storage: `STRATEGIES_DIR/{safe_name}_{code_hash[:12]}.py`
 
 ### Metrics Computed
 

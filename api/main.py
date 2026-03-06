@@ -81,23 +81,24 @@ def ensure_strategies_dir():
     os.makedirs(STRATEGIES_DIR, exist_ok=True)
 
 
-def save_strategy_code(code: str, name: str) -> str:
+def save_strategy_code(code: str, name: str, code_hash: str) -> str:
     """
     Save strategy code to the strategies directory.
 
     Args:
         code: Python source code for the strategy
         name: Strategy name (used for filename)
+        code_hash: SHA-256 of the strategy code
 
     Returns:
         Absolute path to the saved strategy file
     """
     ensure_strategies_dir()
-    # Sanitize filename
-    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
-    filename = f"{safe_name}.py"
+    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in name).strip("_") or "strategy"
+    short_hash = code_hash[:12]
+    filename = f"{safe_name}_{short_hash}.py"
     path = os.path.abspath(os.path.join(STRATEGIES_DIR, filename))
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(code)
     return path
 
@@ -166,11 +167,11 @@ def submit_strategy(req: StrategySubmit, db: Session = Depends(get_db)):
     if "def simulate(" not in req.code:
         raise HTTPException(status_code=400, detail="code must contain simulate(prices, params) function")
 
-    # Save code to disk
-    strategy_path = save_strategy_code(req.code, req.name)
-
-    # Compute hash and create version
+    # Compute hash before writing so filenames are content-addressed.
     code_hash = sha256_bytes(req.code.encode("utf-8"))
+
+    # Save code to disk
+    strategy_path = save_strategy_code(req.code, req.name, code_hash)
 
     # Check for existing version with same hash
     existing = db.execute(

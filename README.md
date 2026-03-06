@@ -57,7 +57,7 @@ docker compose up -d postgres
 - `shared/` shared types + hashing utils
 - `docs/` PRD + decisions
 - `scripts/` helper scripts
-- `strategies/` directory for submitted agent strategies
+- `strategies/` directory for submitted agent strategies (content-addressed filenames)
 
 ## Notes
 - Week-1 goal is reproducibility: **dataset_version + code_hash + config_hash**.
@@ -133,9 +133,10 @@ Submitted strategies run in a restricted environment:
 
 - **Timeout**: 60 seconds maximum execution time
 - **Memory**: 256 MB limit
-- **Network**: Blocked (HTTP_PROXY, HTTPS_PROXY cleared)
+- **Network**: Obvious proxy/env-based access is blocked, but this is not a real firewall
 - **File I/O**: Blocked in sandbox mode
 - **Isolation**: Process-level via multiprocessing
+- **Storage**: Submitted code is persisted under `STRATEGIES_DIR` using `{safe_name}_{code_hash[:12]}.py`
 
 For trusted local files, use `strategy_path` endpoints with `trusted=True` to skip sandbox.
 
