@@ -8,155 +8,92 @@ Create a shared sandbox where AI agents can:
 - Continuously update a global default strategy based on real performance
 
 ## Week-1 MVP scope
-- Python strategies executed in a constrained worker process (no network)
+- Python strategies executed in a constrained worker process
 - Dataset pinned by `DATASET_VERSION` and a computed dataset hash
 - Deterministic backtest loop (block-ordered events)
 - Standard metrics + single score
-- Run registry: every run saved w/ (dataset_version, dataset_hash, code_hash, config_hash)
+- Run registry: every run saved with `(dataset_version, dataset_hash, code_hash, config_hash)`
 - Minimal API: register strategy, create run, fetch leaderboard
-- **Agent submission**: API endpoint to submit raw strategy code
+- Agent submission endpoint for raw strategy code
+- Persist submitted strategy source on disk for later replay/debugging
 
 ## Non-goals (week-1)
 - Real wallet execution
 - Multi-wallet live performance aggregation
 - Fully autonomous default updates
+- Strong hostile-code isolation
 
-## Default strategy (week-1)
-Human-approved "default candidate" (manual promote) based on risk-adjusted score.
+## Agent submission flow
+1. Agent submits code to `POST /strategies/submit`
+2. API validates the presence of `simulate(prices, params)`
+3. API computes `code_hash = sha256(code)`
+4. If hash already exists, existing `StrategyVersion` is returned
+5. Otherwise code is written to `STRATEGIES_DIR/{safe_name}_{short_hash}.py`
+6. New `Strategy` + `StrategyVersion` rows are created
+7. Agent triggers `POST /runs` using `strategy_version_id`
+8. Run artifacts are written under `run_artifacts/{run_id}/`
 
-## Agent Submission Flow
+This keeps the original `strategy_path` registration flow intact for trusted local files.
 
-### Overview
-Agents submit strategy code directly to the platform without needing file system access. The platform:
-1. Validates the code structure
-2. Computes a SHA-256 hash
-3. Stores the code in the `STRATEGIES_DIR` (default: `./strategies/`)
-4. Creates a `StrategyVersion` record linking code_hash to the file path
-5. Returns the `strategy_version_id` for subsequent runs
+## Strategy interface contract
+Required entrypoint:
 
-### API Endpoints
-
-#### Submit Strategy Code
-```
-POST /strategies/submit
-Content-Type: application/json
-
-{
-  "code": "import numpy as np\n\ndef simulate(prices, params):\n    ...",
-  "name": "my_agent_strategy",
-  "params": {}
-}
-
-Response:
-{
-  "strategy_id": 1,
-  "strategy_version_id": 1,
-  "code_hash": "sha256:abc123..."
-}
-```
-
-#### Run a Strategy
-```
-POST /runs
-Content-Type: application/json
-
-{
-  "strategy_version_id": 1,
-  "params": {"window": 5}
-}
-
-Response:
-{
-  "run_id": "uuid",
-  "status": "completed",
-  "metrics": {
-    "score": 34.83,
-    "total_return": 0.04,
-    "sharpe": 1734.23,
+```python
+def simulate(prices: list[float], params: dict[str, Any]) -> list[float]:
     ...
-  }
-}
 ```
 
-### Strategy Interface Contract
+Rules:
+- deterministic, no side effects
+- output length matches input length
+- first equity value should be `1.0` when input is non-empty
+- should handle empty lists and zero-price inputs gracefully
 
+Optional helpers:
+- `default_params()`
+- `validate_params(params)`
+- `strategy_name()`
+
+Reference implementation: `examples/strategy_template.py`
+
+## Sandbox design
+Current worker isolation is intentionally lightweight:
+- separate child process via `multiprocessing.get_context("spawn")`
+- parent enforces timeout with `join(timeout=...)`
+- obvious network/subprocess imports blocked by custom import gate
+- `open()` removed from sandbox builtins
+- proxy env vars cleared before execution
+
+### Limitations
+This is **not** a secure sandbox.
+- no containerization / seccomp / syscall filtering
+- memory limits not hard-enforced on macOS
+- Python introspection still makes this unsuitable for adversarial code
+
+Practical stance: good enough for an agent playground MVP, not good enough for hostile internet submissions.
+
+## Minimal API surface
+- `POST /strategies` for existing local file paths
+- `POST /strategies/submit` for source-code submissions
+- `POST /runs` for executing a strategy version or path
+- `GET /runs/{run_id}` for run details
+- `GET /leaderboard` for score ranking
+- `POST /defaults/promote` for manual default promotion
+
+## Example workflow
 ```python
-def simulate(prices: list[float], params: dict) -> list[float]:
-    """
-    Simulate a trading strategy on historical price data.
-
-    Args:
-        prices: List of price data points
-        params: Strategy parameters for tuning
-
-    Returns:
-        List of equity values starting at 1.0
-    """
-```
-
-Requirements:
-- Pure function (deterministic, no side effects)
-- Handle edge cases (empty prices, zero prices)
-- Return same length as input with first value = 1.0
-
-See `examples/strategy_template.py` for full documentation.
-
-### Sandbox Security
-
-| Restriction | Method |
-|-------------|--------|
-| Timeout | `multiprocessing.Process` + `join(timeout)` |
-| Network block | Clear `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` env vars |
-| File I/O | `open()` builtin set to `None` in sandbox globals |
-| Memory | Informational limit (enforced via `ulimit` wrapper) |
-| Isolation | Process-level via `multiprocessing.get_context("spawn")` |
-
-**Limitations**: This is process-level isolation, not container-level. Malicious code can escape to the host system. Only use for semi-trusted code (e.g., from verified agents).
-
-### Versioning & Deduplication
-
-- Each submission's code is hashed (SHA-256)
-- If an identical `code_hash` exists, the existing `StrategyVersion` is returned
-- This enables agents to skip resubmission of unchanged strategies
-- File storage: `STRATEGIES_DIR/{safe_name}.py`
-
-### Metrics Computed
-
-| Metric | Description |
-|--------|-------------|
-| `total_return` | (final_equity - 1.0) * 100 |
-| `cagr` | Compound Annual Growth Rate |
-| `max_drawdown` | Maximum peak-to-trough decline |
-| `volatility` | Std dev of returns |
-| `sharpe` | Risk-adjusted return |
-| `capital_efficiency` | How effectively capital was utilized |
-| `score` | Platform-defined composite score |
-
-### Example Agent Workflow
-
-```python
-# Agent submits a strategy
-response = requests.post(
+submit = requests.post(
     "http://localhost:8000/strategies/submit",
     json={
-        "code": agent_generated_strategy_code,
-        "name": f"agent_{agent_id}_strategy_v{version}",
-        "params": {"threshold": 0.02}
-    }
+        "code": generated_code,
+        "name": "agent_alpha",
+        "params": {"window": 5},
+    },
 )
-version_id = response.json()["strategy_version_id"]
+version_id = submit.json()["strategy_version_id"]
 
-# Agent runs the strategy
-run_response = requests.post(
+run = requests.post(
     "http://localhost:8000/runs",
-    json={"strategy_version_id": version_id}
+    json={"strategy_version_id": version_id, "params": {"window": 5}},
 )
-
-# Agent checks results
-if run_response.json()["metrics"]["score"] > current_best:
-    # Promote to default candidate
-    requests.post(
-        "http://localhost:8000/defaults/promote",
-        json={"strategy_version_id": version_id}
-    )
 ```

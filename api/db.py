@@ -22,8 +22,16 @@ def get_engine():
 
 
 engine = get_engine()
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+SessionLocal = sessionmaker(autoflush=False, autocommit=False, future=True)
+SessionLocal.configure(bind=engine)
+
+
+def refresh_engine() -> None:
+    global engine
+    engine = get_engine()
+    SessionLocal.configure(bind=engine)
 
 
 def init_db() -> None:
+    refresh_engine()
     Base.metadata.create_all(bind=engine)

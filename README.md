@@ -11,9 +11,9 @@
 ## Quick start (dev)
 ### 1) Create a virtualenv
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv venv --python 3.12 .venv312
+source .venv312/bin/activate
+uv pip install -r requirements.txt
 ```
 
 ### 2) Configure environment
@@ -21,9 +21,7 @@ Create `.env`:
 ```bash
 DATASET_DIR=/absolute/path/to/dataset
 DATASET_VERSION=v1
-# Default (recommended for local dev, no Docker required)
 DATABASE_URL=sqlite:///./agenttest.sqlite
-# Optional: directory for submitted strategies (default: strategies/)
 STRATEGIES_DIR=./strategies
 ```
 
@@ -32,23 +30,10 @@ STRATEGIES_DIR=./strategies
 uvicorn api.main:app --reload --port 8000
 ```
 
-### 4) Run a backtest locally (worker)
+### 4) Run demos
 ```bash
-python -m worker.run_backtest --strategy examples/strategies/buy_and_hold.py --dataset $DATASET_DIR
-```
-
-### Optional: Postgres mode
-Install Postgres driver extras:
-```bash
-pip install -r requirements-postgres.txt
-```
-If you want Postgres locally, use Docker compose and set:
-```bash
-DATABASE_URL=postgresql+psycopg://agenttest:agenttest@localhost:5432/agenttest
-```
-Then:
-```bash
-docker compose up -d postgres
+scripts/demo.sh
+scripts/submission_demo.sh
 ```
 
 ## Repo layout
@@ -57,46 +42,34 @@ docker compose up -d postgres
 - `shared/` shared types + hashing utils
 - `docs/` PRD + decisions
 - `scripts/` helper scripts
-- `strategies/` directory for submitted agent strategies
+- `strategies/` persisted submitted strategies
+- `run_artifacts/` backtest outputs keyed by run id
 
-## Notes
-- Week-1 goal is reproducibility: **dataset_version + code_hash + config_hash**.
-- Dataset should not be committed to git unless explicitly using Git LFS.
-
-## Strategy Interface
-
-All strategies must implement a `simulate(prices, params)` function:
+## Strategy interface
+All strategies must implement:
 
 ```python
-import numpy as np
-
 def simulate(prices: list[float], params: dict) -> list[float]:
-    """
-    Args:
-        prices: List of price data points
-        params: Strategy parameters for tuning
-
-    Returns:
-        List of equity values starting at 1.0
-    """
-    p = np.asarray(prices, dtype=float)
-    p0 = p[0] if p[0] != 0 else 1.0
-    equity = p / p0
-    return equity.tolist()
+    ...
 ```
 
-See `examples/strategy_template.py` for the full contract and documentation.
+Rules:
+- deterministic, no side effects
+- return equity curve same length as `prices`
+- first value should be `1.0`
+- handle empty/zero-price inputs sanely
 
-## Agent Submission Flow
+See `examples/strategy_template.py`.
 
-Agents can submit strategies directly via API:
+## Agent submission flow
+Agents can either:
+1. register an existing local file with `POST /strategies`, or
+2. submit raw source code with `POST /strategies/submit`
 
-### 1. Submit strategy code
+### Submit code
 ```bash
-curl -X POST http://localhost:8000/strategies/submit \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "code": "import numpy as np\n\ndef simulate(prices, params):\n    p = np.asarray(prices, dtype=float)\n    return (p / p[0]).tolist() if p[0] != 0 else [1.0] * len(p)",
+curl -X POST http://localhost:8000/strategies/submit   -H 'Content-Type: application/json'   -d '{
+    "code": "import numpy as np\n\ndef simulate(prices, params):\n    p = np.asarray(prices, dtype=float)\n    if len(p) == 0: return [1.0]\n    p0 = p[0] if p[0] != 0 else 1.0\n    out = (p / p0)\n    out[0] = 1.0\n    return out.tolist()",
     "name": "my_agent_strategy",
     "params": {}
   }'
@@ -107,37 +80,43 @@ Response:
 {
   "strategy_id": 1,
   "strategy_version_id": 1,
-  "code_hash": "abc123..."
+  "code_hash": "..."
 }
 ```
 
-### 2. Run the strategy
+Submitted code is stored on disk under `STRATEGIES_DIR` using a sanitized name plus a short content hash.
+If the same code is submitted again, the existing `StrategyVersion` is reused.
+
+### Run submitted strategy
 ```bash
-curl -X POST http://localhost:8000/runs \
-  -H 'Content-Type: application/json' \
-  -d '{
+curl -X POST http://localhost:8000/runs   -H 'Content-Type: application/json'   -d '{
     "strategy_version_id": 1,
     "params": {}
   }'
 ```
 
-### 3. Check results
+### Inspect results
 ```bash
 curl http://localhost:8000/runs/{run_id}
 curl http://localhost:8000/leaderboard
 ```
 
 ## Sandbox
+Submitted strategies are intended to run in a restricted worker process.
+Current implementation provides **best-effort process-level isolation**, not hardened containment.
 
-Submitted strategies run in a restricted environment:
+Current protections:
+- process-level timeout (default 60s)
+- `open()` removed in sandbox mode
+- obvious network-related imports blocked (`socket`, `requests`, `urllib`, `subprocess`, etc.)
+- proxy env vars cleared before execution
 
-- **Timeout**: 60 seconds maximum execution time
-- **Memory**: 256 MB limit
-- **Network**: Blocked (HTTP_PROXY, HTTPS_PROXY cleared)
-- **File I/O**: Blocked in sandbox mode
-- **Isolation**: Process-level via multiprocessing
+Known limitations:
+- no container / VM boundary
+- memory limit is documented but not hard-enforced on macOS
+- unsafe for truly hostile code
 
-For trusted local files, use `strategy_path` endpoints with `trusted=True` to skip sandbox.
+Use this for semi-trusted agent submissions, not adversarial execution.
 
 ## API
 - `GET /health`
@@ -147,20 +126,3 @@ For trusted local files, use `strategy_path` endpoints with `trusted=True` to sk
 - `GET /runs/{run_id}`
 - `GET /leaderboard?dataset_version=v1`
 - `POST /defaults/promote` `{ "strategy_version_id": 1 }`
-
-## Demo
-
-No-Docker default (SQLite):
-```bash
-scripts/demo.sh
-```
-
-Postgres via Docker:
-```bash
-USE_DOCKER=1 scripts/demo.sh
-```
-
-Agent submission demo:
-```bash
-scripts/submission_demo.sh
-```
