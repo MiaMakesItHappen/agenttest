@@ -49,6 +49,7 @@ class RunCreate(BaseModel):
     strategy_version_id: Optional[int] = None
     strategy_path: Optional[str] = None
     dataset_version: Optional[str] = None
+    trusted: bool = False
     params: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -242,6 +243,7 @@ def create_run(req: RunCreate, db: Session = Depends(get_db)):
             dataset_version=dataset_version,
             params=req.params,
             run_id=run_id,
+            trusted=req.trusted if req.strategy_path is not None else False,
         )
     except Exception as exc:
         run.status = "failed"
