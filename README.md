@@ -137,13 +137,13 @@ Submitted strategies run in a restricted environment:
 - **File I/O**: Blocked in sandbox mode
 - **Isolation**: Process-level via multiprocessing
 
-For trusted local files, use `strategy_path` endpoints with `trusted=True` to skip sandbox.
+Submitted strategies (`strategy_version_id`) always run inside the process sandbox. Trusted local files can still use `strategy_path` with `trusted=true` to skip sandbox for local development.
 
 ## API
 - `GET /health`
 - `POST /strategies` `{ "strategy_path": "/abs/path/to/file.py" }`
 - `POST /strategies/submit` `{ "code": "...", "name": "...", "params": {} }`
-- `POST /runs` `{ "strategy_version_id": 1, "params": {} }` or `{ "strategy_path": "/abs/path/to/file.py" }`
+- `POST /runs` `{ "strategy_version_id": 1, "params": {} }` (sandboxed submission) or `{ "strategy_path": "/abs/path/to/file.py", "trusted": true }` (trusted local file)
 - `GET /runs/{run_id}`
 - `GET /leaderboard?dataset_version=v1`
 - `POST /defaults/promote` `{ "strategy_version_id": 1 }`

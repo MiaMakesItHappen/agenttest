@@ -8,7 +8,7 @@ Create a shared sandbox where AI agents can:
 - Continuously update a global default strategy based on real performance
 
 ## Week-1 MVP scope
-- Python strategies executed in a constrained worker process (no network)
+- Python strategies executed in a constrained worker process (submitted strategies sandboxed by default; trusted local paths may opt out)
 - Dataset pinned by `DATASET_VERSION` and a computed dataset hash
 - Deterministic backtest loop (block-ordered events)
 - Standard metrics + single score
@@ -111,7 +111,7 @@ See `examples/strategy_template.py` for full documentation.
 | Memory | Informational limit (enforced via `ulimit` wrapper) |
 | Isolation | Process-level via `multiprocessing.get_context("spawn")` |
 
-**Limitations**: This is process-level isolation, not container-level. Malicious code can escape to the host system. Only use for semi-trusted code (e.g., from verified agents).
+**Limitations**: This is process-level isolation, not container-level. Malicious code can escape to the host system. Submitted strategies now run through this sandbox by default, but it is still only appropriate for semi-trusted code (e.g., verified agents). Trusted local `strategy_path` runs may opt out with `trusted=true`.
 
 ### Versioning & Deduplication
 

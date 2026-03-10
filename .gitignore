@@ -1,5 +1,6 @@
 .DS_Store
 .venv/
+.venv312/
 __pycache__/
 *.pyc
 .env
@@ -7,4 +8,5 @@ __pycache__/
 data/
 datasets/
 run_artifacts/
+strategies/
 *.sqlite
