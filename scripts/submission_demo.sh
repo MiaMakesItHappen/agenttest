@@ -33,10 +33,23 @@ rm -f "${ROOT_DIR}/agenttest.sqlite"
 
 echo "=== Agenttest Submission Demo ==="
 
-# Start API in background with reload for development
-uvicorn api.main:app --reload --port 8000 >/tmp/agenttest_api.log 2>&1 &
+PYTHON_BIN="${ROOT_DIR}/.venv312/bin/python"
+UVICORN_BIN="${ROOT_DIR}/.venv312/bin/uvicorn"
+if [ ! -x "$PYTHON_BIN" ] || [ ! -x "$UVICORN_BIN" ]; then
+  echo "Missing .venv312 runtime. Run: uv venv --python 3.12 .venv312 && source .venv312/bin/activate && uv pip install -r requirements.txt" >&2
+  exit 1
+fi
+
+# Start API in background using the pinned Python 3.12 environment
+"$PYTHON_BIN" - <<'PY'
+from api.db import init_db
+init_db()
+print("DB initialized")
+PY
+
+"$UVICORN_BIN" api.main:app --port 8000 >/tmp/agenttest_api.log 2>&1 &
 API_PID=$!
-trap 'kill "$API_PID"' EXIT
+trap 'kill "$API_PID" >/dev/null 2>&1 || true' EXIT
 echo "Starting API (PID: $API_PID)..."
 
 # Wait for API (reload takes longer)
