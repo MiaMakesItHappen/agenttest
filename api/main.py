@@ -76,6 +76,13 @@ def get_strategy_name(strategy_path: str) -> str:
 STRATEGIES_DIR = os.getenv("STRATEGIES_DIR", "strategies")
 
 
+def _is_submitted_strategy(strategy_path: str) -> bool:
+    """Return True if strategy_path lives inside STRATEGIES_DIR (agent-submitted code)."""
+    abs_path = os.path.abspath(strategy_path)
+    abs_dir = os.path.abspath(STRATEGIES_DIR)
+    return abs_path.startswith(abs_dir + os.sep) or abs_path == abs_dir
+
+
 def ensure_strategies_dir():
     """Ensure the strategies directory exists."""
     os.makedirs(STRATEGIES_DIR, exist_ok=True)
@@ -236,12 +243,16 @@ def create_run(req: RunCreate, db: Session = Depends(get_db)):
     db.commit()
 
     try:
+        # Strategies saved inside STRATEGIES_DIR were agent-submitted: sandbox them.
+        # Strategies from an explicit local path (strategy_path in request) are trusted.
+        is_submitted = _is_submitted_strategy(version.strategy_path)
         result = run_backtest(
             strategy_path=version.strategy_path,
             dataset_dir=dataset_dir,
             dataset_version=dataset_version,
             params=req.params,
             run_id=run_id,
+            trusted=not is_submitted,
         )
     except Exception as exc:
         run.status = "failed"
