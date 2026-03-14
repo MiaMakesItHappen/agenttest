@@ -5,3 +5,5 @@ python-dotenv==1.0.1
 numpy==2.2.3
 pandas==2.2.3
 SQLAlchemy==2.0.38
+pytest==9.0.2
+httpx==0.28.1

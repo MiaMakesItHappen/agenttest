@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -22,7 +23,13 @@ from api.models import (
 from shared.hashing import sha256_bytes
 from worker.runner import run_backtest
 
-app = FastAPI(title="agenttest")
+@asynccontextmanager
+async def lifespan(app_: FastAPI):  # noqa: ARG001
+    init_db()
+    yield
+
+
+app = FastAPI(title="agenttest", lifespan=lifespan)
 
 
 class Health(BaseModel):
@@ -76,6 +83,13 @@ def get_strategy_name(strategy_path: str) -> str:
 STRATEGIES_DIR = os.getenv("STRATEGIES_DIR", "strategies")
 
 
+def _is_submitted_strategy(strategy_path: str) -> bool:
+    """Return True if strategy_path lives inside STRATEGIES_DIR (agent-submitted code)."""
+    abs_path = os.path.abspath(strategy_path)
+    abs_dir = os.path.abspath(STRATEGIES_DIR)
+    return abs_path.startswith(abs_dir + os.sep) or abs_path == abs_dir
+
+
 def ensure_strategies_dir():
     """Ensure the strategies directory exists."""
     os.makedirs(STRATEGIES_DIR, exist_ok=True)
@@ -121,11 +135,6 @@ def get_or_create_strategy_version(db: Session, strategy_path: str) -> StrategyV
     db.commit()
     db.refresh(version)
     return version
-
-
-@app.on_event("startup")
-def on_startup() -> None:
-    init_db()
 
 
 @app.get("/health", response_model=Health)
@@ -236,16 +245,20 @@ def create_run(req: RunCreate, db: Session = Depends(get_db)):
     db.commit()
 
     try:
+        # Strategies saved inside STRATEGIES_DIR were agent-submitted: sandbox them.
+        # Strategies from an explicit local path (strategy_path in request) are trusted.
+        is_submitted = _is_submitted_strategy(version.strategy_path)
         result = run_backtest(
             strategy_path=version.strategy_path,
             dataset_dir=dataset_dir,
             dataset_version=dataset_version,
             params=req.params,
             run_id=run_id,
+            trusted=not is_submitted,
         )
     except Exception as exc:
         run.status = "failed"
-        run.completed_at = datetime.utcnow()
+        run.completed_at = datetime.now(timezone.utc)
         db.add(run)
         db.commit()
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -254,7 +267,7 @@ def create_run(req: RunCreate, db: Session = Depends(get_db)):
     run.config_hash = result.config_hash
     run.artifacts_dir = result.artifacts_dir
     run.status = "completed"
-    run.completed_at = datetime.utcnow()
+    run.completed_at = datetime.now(timezone.utc)
     db.add(run)
 
     ds = db.execute(select(DatasetVersion).where(DatasetVersion.version == dataset_version)).scalar_one_or_none()

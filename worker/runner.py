@@ -47,7 +47,24 @@ def run_backtest(
     dataset_version: str,
     params: Dict[str, Any],
     run_id: str | None = None,
+    trusted: bool = True,
 ) -> RunResult:
+    """
+    Run a backtest for the given strategy.
+
+    Args:
+        strategy_path: Path to the strategy Python file.
+        dataset_dir: Directory containing prices.csv.
+        dataset_version: Dataset version label (e.g. "v1").
+        params: Strategy parameters passed to simulate().
+        run_id: Optional run ID (auto-generated if not provided).
+        trusted: If False, execute strategy inside the process-level sandbox
+                 (timeout + restricted builtins). Set to False for agent-submitted
+                 code that was not sourced from a trusted local path.
+
+    Returns:
+        RunResult with metrics and artifact locations.
+    """
     run_id = run_id or str(uuid.uuid4())
     started = time.time()
 
@@ -55,19 +72,25 @@ def run_backtest(
     code_hash = hash_file(strategy_path)
     config_hash = sha256_json({"params": params, "dataset_version": dataset_version})
 
-    # Load strategy
-    strategy_globals: Dict[str, Any] = {}
+    # Load strategy source
     with open(strategy_path, "r", encoding="utf-8") as f:
         code = f.read()
-    exec(compile(code, strategy_path, "exec"), strategy_globals)
-
-    if "simulate" not in strategy_globals:
-        raise ValueError("Strategy must define simulate(prices, params) -> equity_curve")
 
     prices = load_price_series(dataset_dir)
-    equity = strategy_globals["simulate"](prices=prices, params=params)
-    equity = pd.Series(equity, dtype=float)
 
+    if trusted:
+        # Trusted path: execute directly (local dev / verified files).
+        strategy_globals: Dict[str, Any] = {}
+        exec(compile(code, strategy_path, "exec"), strategy_globals)
+        if "simulate" not in strategy_globals:
+            raise ValueError("Strategy must define simulate(prices, params) -> equity_curve")
+        equity_raw = strategy_globals["simulate"](prices=prices, params=params)
+    else:
+        # Untrusted path: run inside sandbox (process isolation + timeout).
+        from worker.sandbox import run_sandboxed
+        equity_raw = run_sandboxed(code, prices.tolist(), params)
+
+    equity = pd.Series(equity_raw, dtype=float)
     # Metrics (very MVP)
     steps_per_year = float(params.get("steps_per_year", 365))
     n_steps = max(len(equity) - 1, 0)
