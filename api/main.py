@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -22,7 +23,13 @@ from api.models import (
 from shared.hashing import sha256_bytes
 from worker.runner import run_backtest
 
-app = FastAPI(title="agenttest")
+@asynccontextmanager
+async def lifespan(app_: FastAPI):  # noqa: ARG001
+    init_db()
+    yield
+
+
+app = FastAPI(title="agenttest", lifespan=lifespan)
 
 
 class Health(BaseModel):
@@ -128,11 +135,6 @@ def get_or_create_strategy_version(db: Session, strategy_path: str) -> StrategyV
     db.commit()
     db.refresh(version)
     return version
-
-
-@app.on_event("startup")
-def on_startup() -> None:
-    init_db()
 
 
 @app.get("/health", response_model=Health)
@@ -256,7 +258,7 @@ def create_run(req: RunCreate, db: Session = Depends(get_db)):
         )
     except Exception as exc:
         run.status = "failed"
-        run.completed_at = datetime.utcnow()
+        run.completed_at = datetime.now(timezone.utc)
         db.add(run)
         db.commit()
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -265,7 +267,7 @@ def create_run(req: RunCreate, db: Session = Depends(get_db)):
     run.config_hash = result.config_hash
     run.artifacts_dir = result.artifacts_dir
     run.status = "completed"
-    run.completed_at = datetime.utcnow()
+    run.completed_at = datetime.now(timezone.utc)
     db.add(run)
 
     ds = db.execute(select(DatasetVersion).where(DatasetVersion.version == dataset_version)).scalar_one_or_none()
