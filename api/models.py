@@ -88,3 +88,17 @@ class DefaultStrategyHistory(Base):
         ForeignKey("strategy_versions.id"), nullable=False, index=True
     )
     promoted_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+class AaveRate(Base):
+    __tablename__ = "aave_rates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    collected_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    project: Mapped[str] = mapped_column(String(64), nullable=False)
+    chain: Mapped[str] = mapped_column(String(64), nullable=False)
+    supply_apy: Mapped[float] = mapped_column(Float, nullable=False)
+    borrow_apy: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tvl_usd: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pool_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
