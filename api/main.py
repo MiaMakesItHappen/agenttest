@@ -369,3 +369,25 @@ def promote_default(req: PromoteDefault, db: Session = Depends(get_db)):
     db.add(history)
     db.commit()
     return {"ok": True, "strategy_version_id": version.id}
+
+
+@app.get("/rates/aave")
+def get_aave_rates(symbol: str | None = None, limit: int = 100, db: Session = Depends(get_db)):
+    """Get latest Aave v3 Arbitrum rates. Optionally filter by symbol (WBTC, WETH, USDC)."""
+    from api.models import AaveRate
+    from sqlalchemy import desc
+    q = db.query(AaveRate)
+    if symbol:
+        q = q.filter(AaveRate.symbol == symbol.upper())
+    rates = q.order_by(desc(AaveRate.collected_at)).limit(limit).all()
+    return [
+        {
+            "collected_at": r.collected_at.isoformat(),
+            "symbol": r.symbol,
+            "supply_apy": r.supply_apy,
+            "borrow_apy": r.borrow_apy,
+            "tvl_usd": r.tvl_usd,
+        }
+        for r in rates
+    ]
+
