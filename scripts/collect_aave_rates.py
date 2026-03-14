@@ -29,7 +29,8 @@ TARGETS = {"WBTC", "WETH", "USDC", "USDT"}
 def fetch(url: str) -> list:
     req = urllib.request.Request(url, headers={"User-Agent": "agenttest-rate-collector/1.0"})
     with urllib.request.urlopen(req, timeout=20) as r:
-        return json.load(r).get("data", [])
+        result = json.load(r)
+        return result if isinstance(result, list) else result.get("data", [])
 
 
 def collect():
@@ -80,7 +81,7 @@ def collect():
             )
             session.add(rate)
             borrow_str = f" | borrow={borrow_map[sym]:.4f}%" if sym in borrow_map else ""
-            print(f"[{now.isoformat(timespec="seconds")}] {sym}: supply={info["supply_apy"]:.4f}%{borrow_str} tvl=${info["tvl_usd"]:,}")
+            ts = now.isoformat(timespec='seconds'); sym_supply = info['supply_apy']; sym_tvl = info['tvl_usd']; print(f"[{ts}] {sym}: supply={sym_supply:.4f}%{borrow_str} tvl=${sym_tvl:,}")
             saved += 1
 
         session.commit()
