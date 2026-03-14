@@ -56,16 +56,16 @@ def collect():
                         "chain": p.get("chain", "Arbitrum"),
                     }
 
-        # Borrow rates
-        borrow_pools = fetch(LLAMA_BORROW_URL)
+        # Borrow rates — lendBorrow uses pool IDs, cross-ref via supply_map pool_ids
+        borrow_raw = fetch(LLAMA_BORROW_URL)
+        pool_id_to_sym = {info["pool_id"]: sym for sym, info in supply_map.items()}
         borrow_map = {}
-        for p in borrow_pools:
-            if ("aave-v3" in p.get("project", "").lower()
-                    and "arbitrum" in p.get("chain", "").lower()
-                    and p.get("symbol", "") in TARGETS):
-                sym = p["symbol"]
-                if sym not in borrow_map:
-                    borrow_map[sym] = round(p.get("apyBorrow", 0) or 0, 6)
+        for p in borrow_raw:
+            pid = p.get("pool", "")
+            if pid in pool_id_to_sym:
+                sym = pool_id_to_sym[pid]
+                rate = p.get("apyBaseBorrow") or p.get("apyBorrow") or 0
+                borrow_map[sym] = round(float(rate), 6)
 
         saved = 0
         for sym, info in supply_map.items():
