@@ -13,6 +13,30 @@ from shared.hashing import sha256_bytes, sha256_json
 from shared.types import RunResult
 
 
+def _inject_live_rates(params: dict) -> dict:
+    """Overlay latest Aave rates from DB into params (if not already set by caller)."""
+    try:
+        import sys, os
+        sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+        from scripts.get_latest_rates import get_latest_rates
+        rates = get_latest_rates()
+        out = dict(params)
+        # Only inject if caller hasn't explicitly set these
+        if "btc_supply_apy" not in out and "WBTC" in rates:
+            out["btc_supply_apy"] = rates["WBTC"]["supply_apy"]
+        if "borrow_rate_apy" not in out and "USDC" in rates:
+            out["borrow_rate_apy"] = rates["USDC"]["borrow_apy"]
+        if "usdc_yield_apy" not in out and "USDC" in rates:
+            out["usdc_yield_apy"] = rates["USDC"]["supply_apy"]
+        out["_rates_source"] = rates.get("_source", "unknown")
+        out["_rates_collected_at"] = str(rates.get("_collected_at", ""))
+        return out
+    except Exception as e:
+        import sys
+        print(f"[runner] live rate injection failed: {e}", file=sys.stderr)
+        return params
+
+
 def hash_file(path: str) -> str:
     with open(path, "rb") as f:
         return sha256_bytes(f.read())
@@ -53,7 +77,7 @@ def run_backtest(
 
     dataset_hash = hash_dataset_dir(dataset_dir)
     code_hash = hash_file(strategy_path)
-    config_hash = sha256_json({"params": params, "dataset_version": dataset_version})
+    config_hash = sha256_json({"params": params, "dataset_version": dataset_version})  # hashed before enrichment (caller params only)
 
     # Load strategy
     strategy_globals: Dict[str, Any] = {}
@@ -65,7 +89,9 @@ def run_backtest(
         raise ValueError("Strategy must define simulate(prices, params) -> equity_curve")
 
     prices = load_price_series(dataset_dir)
-    equity = strategy_globals["simulate"](prices=prices, params=params)
+    # Inject live Aave rates unless caller overrides them
+    enriched_params = _inject_live_rates(params)
+    equity = strategy_globals["simulate"](prices=list(prices.values), params=enriched_params)
     equity = pd.Series(equity, dtype=float)
 
     # Metrics (very MVP)
