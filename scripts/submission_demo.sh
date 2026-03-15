@@ -34,7 +34,7 @@ rm -f "${ROOT_DIR}/agenttest.sqlite"
 echo "=== Agenttest Submission Demo ==="
 
 # Start API in background with reload for development
-uvicorn api.main:app --reload --port 8000 >/tmp/agenttest_api.log 2>&1 &
+"$ROOT_DIR/.venv312/bin/uvicorn" api.main:app --reload --port 8000 >/tmp/agenttest_api.log 2>&1 &
 API_PID=$!
 trap 'kill "$API_PID"' EXIT
 echo "Starting API (PID: $API_PID)..."
