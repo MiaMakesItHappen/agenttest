@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import time
 import uuid
-from dataclasses import dataclass
 from typing import Any, Dict
 
 import numpy as np
@@ -11,6 +10,7 @@ import pandas as pd
 
 from shared.hashing import sha256_bytes, sha256_json
 from shared.types import RunResult
+from worker.sandbox import run_strategy
 
 
 def hash_file(path: str) -> str:
@@ -47,7 +47,21 @@ def run_backtest(
     dataset_version: str,
     params: Dict[str, Any],
     run_id: str | None = None,
+    trusted: bool = False,
 ) -> RunResult:
+    """Run a backtest for the strategy at strategy_path.
+
+    Args:
+        strategy_path: Path to the strategy .py file on disk
+        dataset_dir: Directory containing prices.csv
+        dataset_version: Version label for the dataset
+        params: Strategy parameters forwarded to simulate()
+        run_id: Optional run UUID; generated if omitted
+        trusted: If True, skip sandbox and run strategy directly.
+                 Set True only for built-in/verified local files.
+                 Submitted code from agents should always use trusted=False
+                 (the default) so the sandbox enforces timeout + network block.
+    """
     run_id = run_id or str(uuid.uuid4())
     started = time.time()
 
@@ -55,20 +69,18 @@ def run_backtest(
     code_hash = hash_file(strategy_path)
     config_hash = sha256_json({"params": params, "dataset_version": dataset_version})
 
-    # Load strategy
-    strategy_globals: Dict[str, Any] = {}
+    # Load strategy source
     with open(strategy_path, "r", encoding="utf-8") as f:
         code = f.read()
-    exec(compile(code, strategy_path, "exec"), strategy_globals)
-
-    if "simulate" not in strategy_globals:
-        raise ValueError("Strategy must define simulate(prices, params) -> equity_curve")
 
     prices = load_price_series(dataset_dir)
-    equity = strategy_globals["simulate"](prices=prices, params=params)
-    equity = pd.Series(equity, dtype=float)
+    prices_list = prices.tolist()
 
-    # Metrics (very MVP)
+    # Run through sandbox (untrusted) or direct exec (trusted/local files)
+    equity_list = run_strategy(code, prices_list, params, trusted=trusted)
+    equity = pd.Series(equity_list, dtype=float)
+
+    # Metrics (MVP)
     steps_per_year = float(params.get("steps_per_year", 365))
     n_steps = max(len(equity) - 1, 0)
 
