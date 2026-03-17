@@ -222,8 +222,12 @@ def create_run(req: RunCreate, db: Session = Depends(get_db)):
         version = db.get(StrategyVersion, req.strategy_version_id)
         if not version:
             raise HTTPException(status_code=404, detail="strategy_version_id not found")
+        # Strategies submitted via /strategies/submit are agent code — run sandboxed
+        trusted = False
     else:
         version = get_or_create_strategy_version(db, req.strategy_path)
+        # Strategies registered by local file path are assumed trusted (local dev)
+        trusted = True
 
     run_id = str(uuid.uuid4())
     run = Run(
@@ -242,6 +246,7 @@ def create_run(req: RunCreate, db: Session = Depends(get_db)):
             dataset_version=dataset_version,
             params=req.params,
             run_id=run_id,
+            trusted=trusted,
         )
     except Exception as exc:
         run.status = "failed"
